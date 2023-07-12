@@ -4,8 +4,9 @@ use chacha20poly1305::{aead::Aead, KeyInit, XChaCha20Poly1305, XNonce};
 use std::fs;
 use std::io::{stdin, stdout, Write};
 use std::path::PathBuf;
+use std::process;
 use std::{thread, time};
-use termion::{clear, cursor, input::TermRead};
+use termion::{clear, cursor, event::Key, input::TermRead, raw::IntoRawMode};
 use toml;
 use totp_rs::{Algorithm, TOTP};
 
@@ -17,17 +18,15 @@ use crate::{
 pub fn use_token(key_file: &PathBuf, token_label: &str) -> Result<()> {
     print!("{}", cursor::Save);
 
-    let stdout = stdout();
-    let mut stdout = stdout.lock();
-    let stdin = stdin();
-    let mut stdin = stdin.lock();
+    let mut stdout_handle = stdout().into_raw_mode()?;
+    let mut stdout = stdout();
+    let mut stdin = stdin();
 
-    stdout.write_all(b"Enter key file password: ")?;
-    stdout.flush().unwrap();
-    let key_file_password = stdin.read_passwd(&mut stdout)?.unwrap();
-    stdout.write_all(b"\n")?;
-
-    std::mem::drop(stdout);
+    write!(stdout, "Enter key file password: ")?;
+    stdout.flush()?;
+    let key_file_password = stdin.read_passwd(&mut stdout)?.unwrap_or_default();
+    write!(stdout, "\r\n")?;
+    stdout.flush()?;
 
     let key_file_data = fs::read_to_string(key_file)?;
     let key_file = toml::from_str::<KeyFile>(key_file_data.as_str())?;
@@ -75,12 +74,43 @@ pub fn use_token(key_file: &PathBuf, token_label: &str) -> Result<()> {
         token.label.clone(),
     );
 
-    loop {
-        let code = totp.generate_current().unwrap();
-        let ttl = totp.ttl().unwrap();
+    thread::spawn(move || {
+        let stdin = stdin.lock();
 
-        print!("{}{}", cursor::Restore, clear::AfterCursor);
-        println!("token: {}\ncode: {}, ttl: {}", token_label, code, ttl);
+        let clean_exit = move || {
+            write!(stdout_handle, "{}{}", cursor::Restore, clear::AfterCursor).unwrap();
+            stdout_handle.flush().unwrap();
+            std::mem::drop(stdout_handle);
+            process::exit(0);
+        };
+
+        if stdin
+            .keys()
+            .find(|k| match k.as_ref().unwrap() {
+                Key::Char('q') => true,
+                Key::Esc => true,
+                Key::Ctrl('c') => true,
+                _ => false,
+            })
+            .is_some()
+        {
+            clean_exit();
+        }
+    });
+
+    loop {
+        let code = totp.generate_current()?;
+        let ttl = totp.ttl()?;
+
+        write!(stdout, "{}{}", cursor::Restore, clear::AfterCursor)?;
+        stdout.flush()?;
+        write!(
+            stdout,
+            "token: {}\r\ncode: {} ttl: {}\r\n",
+            token_label, code, ttl
+        )?;
+        write!(stdout, "press 'q', 'Ctrl+c' or 'Esc' to exit\r\n",)?;
+        stdout.flush()?;
         thread::sleep(time::Duration::from_millis(1000));
     }
 }
