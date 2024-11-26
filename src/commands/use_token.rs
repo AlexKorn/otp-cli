@@ -6,7 +6,14 @@ use std::io::{stdin, stdout, Write};
 use std::path::PathBuf;
 use std::process;
 use std::{thread, time};
-use termion::{clear, cursor, event::Key, input::TermRead, raw::IntoRawMode};
+use termion::{
+    clear,
+    cursor::{self, DetectCursorPos},
+    event::Key,
+    input::TermRead,
+    raw::IntoRawMode,
+    terminal_size,
+};
 use toml;
 use totp_rs::{Algorithm, TOTP};
 
@@ -15,17 +22,28 @@ use crate::{
     types::KeyFile,
 };
 
-pub fn use_token(key_file: &PathBuf, token_label: &str) -> Result<()> {
-    print!("{}", cursor::Save);
+const PRINTED_LINES: u16 = 3; // Amount of lines printed with token info
 
+pub fn use_token(key_file: &PathBuf, token_label: &str) -> Result<()> {
     let mut stdout_handle = stdout().into_raw_mode()?;
     let mut stdout = stdout();
     let mut stdin = stdin();
 
+    // write!(stdout, "{}", cursor::Save)?;
+    stdout.flush()?;
+    let mut cursor_position = stdout
+        .cursor_pos()
+        .expect("Failed to get cursor position from stdout");
+    let term_size = terminal_size().expect("Failed to get terminal size");
+
+    if (term_size.1 - cursor_position.1) < PRINTED_LINES {
+        cursor_position.1 -= PRINTED_LINES - (term_size.1 - cursor_position.1);
+    }
+
     write!(stdout, "Enter key file password: ")?;
     stdout.flush()?;
     let key_file_password = stdin.read_passwd(&mut stdout)?.unwrap_or_default();
-    write!(stdout, "\r\n")?;
+    write!(stdout, "\r\n\r\n\r\n")?; // Padding for correct cursor movement - equals to PRINTED_LINES
     stdout.flush()?;
 
     let key_file_data = fs::read_to_string(key_file)?;
@@ -78,7 +96,13 @@ pub fn use_token(key_file: &PathBuf, token_label: &str) -> Result<()> {
         let stdin = stdin.lock();
 
         let clean_exit = move || {
-            write!(stdout_handle, "{}{}", cursor::Restore, clear::AfterCursor).unwrap();
+            write!(
+                stdout_handle,
+                "{}{}",
+                cursor::Goto(cursor_position.0, cursor_position.1),
+                clear::AfterCursor
+            )
+            .unwrap();
             stdout_handle.flush().unwrap();
             std::mem::drop(stdout_handle);
             process::exit(0);
@@ -102,7 +126,13 @@ pub fn use_token(key_file: &PathBuf, token_label: &str) -> Result<()> {
         let code = totp.generate_current()?;
         let ttl = totp.ttl()?;
 
-        write!(stdout, "{}{}", cursor::Restore, clear::AfterCursor)?;
+        write!(
+            stdout,
+            "{}{}",
+            cursor::Goto(cursor_position.0, cursor_position.1),
+            clear::AfterCursor
+        )
+        .unwrap();
         stdout.flush()?;
         write!(
             stdout,
