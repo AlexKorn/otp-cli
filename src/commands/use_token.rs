@@ -1,10 +1,12 @@
 use anyhow::{anyhow, Result};
 use argon2::Argon2;
 use chacha20poly1305::{aead::Aead, KeyInit, XChaCha20Poly1305, XNonce};
+use cli_clipboard::{ClipboardContext, ClipboardProvider};
 use std::fs;
 use std::io::{stdin, stdout, Write};
 use std::path::PathBuf;
 use std::process;
+use std::sync::{Arc, Mutex};
 use std::{thread, time};
 use termion::{
     clear,
@@ -28,6 +30,8 @@ pub fn use_token(key_file: &PathBuf, token_label: &str) -> Result<()> {
     let mut stdout_handle = stdout().into_raw_mode()?;
     let mut stdout = stdout();
     let mut stdin = stdin();
+    let mut maybe_clipboard = ClipboardContext::new().ok();
+    let curent_token = Arc::new(Mutex::new("".to_string()));
 
     // write!(stdout, "{}", cursor::Save)?;
     stdout.flush()?;
@@ -92,6 +96,7 @@ pub fn use_token(key_file: &PathBuf, token_label: &str) -> Result<()> {
         token.label.clone(),
     );
 
+    let curent_token_ref = curent_token.clone();
     thread::spawn(move || {
         let stdin = stdin.lock();
 
@@ -108,23 +113,42 @@ pub fn use_token(key_file: &PathBuf, token_label: &str) -> Result<()> {
             process::exit(0);
         };
 
-        if stdin
-            .keys()
-            .find(|k| match k.as_ref().unwrap() {
-                Key::Char('q') => true,
-                Key::Esc => true,
-                Key::Ctrl('c') => true,
-                _ => false,
-            })
-            .is_some()
-        {
-            clean_exit();
+        for k in stdin.keys() {
+            match k.as_ref().unwrap() {
+                Key::Char('q') | Key::Esc | Key::Ctrl('c') => {
+                    clean_exit();
+                    break;
+                }
+                Key::Char('c') => {
+                    if let Some(clipboard) = maybe_clipboard.as_mut() {
+                        clipboard
+                            .set_contents(curent_token_ref.lock().unwrap().clone())
+                            .expect("Failed to copy code to clipboard! Maybe there is no clipboard support.");
+                    }
+                }
+                _ => {}
+            }
         }
+
+        // if stdin
+        //     .keys()
+        //     .find(|k| match k.as_ref().unwrap() {
+        //         Key::Char('q') => true,
+        //         Key::Esc => true,
+        //         Key::Ctrl('c') => true,
+        //         _ => false,
+        //     })
+        //     .is_some()
+        // {
+        //     clean_exit();
+        // }
     });
 
     loop {
         let code = totp.generate_current()?;
         let ttl = totp.ttl()?;
+
+        *curent_token.lock().unwrap() = code.clone();
 
         write!(
             stdout,
@@ -139,7 +163,10 @@ pub fn use_token(key_file: &PathBuf, token_label: &str) -> Result<()> {
             "token: {}\r\ncode: {} ttl: {}\r\n",
             token_label, code, ttl
         )?;
-        write!(stdout, "press 'q', 'Ctrl+c' or 'Esc' to exit\r\n",)?;
+        write!(
+            stdout,
+            "press 'c' to copy code to clipboard, 'q', 'Ctrl+c' or 'Esc' to exit\r\n",
+        )?;
         stdout.flush()?;
         thread::sleep(time::Duration::from_millis(1000));
     }

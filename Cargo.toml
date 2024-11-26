@@ -13,12 +13,13 @@ argon2 = { version = "0.5.0", default-features = false, features = ["alloc"] }
 base64 = "0.21.2"
 chacha20poly1305 = { version = "0.10.1", features = ["rand_core"] }
 clap = { version = "4.3.8", features = ["derive"] }
+cli-clipboard = "0.4.0"
 hex = "0.4.3"
 jaded = "0.4.0"
 pbkdf2 = "0.12.1"
 protobuf = "3.2.0"
 rand_core = { version = "0.6.4", features = ["getrandom"] }
-serde = {version = "1.0.152", features = ["derive"] }
+serde = { version = "1.0.152", features = ["derive"] }
 serde_json = "1.0.93"
 sha2 = "0.10.7"
 termion = "2.0.1"
