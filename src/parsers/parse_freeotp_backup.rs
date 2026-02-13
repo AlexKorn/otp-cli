@@ -49,17 +49,20 @@ pub fn parse_freeotp_backup(backup_file: &PathBuf, password: &str) -> Result<Vec
 
         let token_key = decrypt_token_key(&encrypted_token_key, master_key.as_slice())?;
 
-        let algorithm = match token_info.algo.as_str() {
-            "SHA1" => TokenAlgorithm::Sha1,
-            "SHA256" => TokenAlgorithm::Sha256,
-            "SHA512" => TokenAlgorithm::Sha512,
-            _ => return Err(anyhow!("Unsupported token algorithm: {}", token_info.algo)),
+        let algorithm = match token_info.algo {
+            Some(algo) => match algo.as_str() {
+                "SHA1" => TokenAlgorithm::Sha1,
+                "SHA256" => TokenAlgorithm::Sha256,
+                "SHA512" => TokenAlgorithm::Sha512,
+                _ => return Err(anyhow!("Unsupported token algorithm: {}", algo)),
+            },
+            None => TokenAlgorithm::Sha1,
         };
 
         let token_type = match token_info.token_type.as_str() {
             "HOTP" => TokenType::Hotp,
             "TOTP" => TokenType::Totp,
-            _ => return Err(anyhow!("Unsupported token type: {}", token_info.algo)),
+            _ => return Err(anyhow!("Unsupported token type: {}", token_info.token_type)),
         };
 
         tokens.push(Token {
@@ -201,17 +204,28 @@ struct EncryptedMasterKey {
 #[allow(dead_code)]
 #[derive(Clone, Debug, Deserialize)]
 struct TokenInfo {
-    pub algo: String,
+    pub algo: Option<String>,
+    #[serde(default)]
     pub counter: u32,
+    #[serde(default = "default_token_digits")]
     pub digits: u32,
-    #[serde(rename = "issuerExt")]
+    #[serde(rename = "issuerExt", default)]
     pub issuer_ext: String,
-    #[serde(rename = "issuerInt")]
+    #[serde(rename = "issuerInt", default)]
     pub issuer_int: String,
     pub label: String,
+    #[serde(default = "default_token_period")]
     pub period: u64,
     #[serde(rename = "type")]
     pub token_type: String,
+}
+
+fn default_token_digits() -> u32 {
+    6
+}
+
+fn default_token_period() -> u64 {
+    30
 }
 
 #[allow(dead_code)]
