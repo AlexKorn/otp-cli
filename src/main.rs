@@ -2,7 +2,6 @@ use anyhow::Result;
 
 mod cli;
 mod commands;
-mod enums;
 mod parsers;
 mod proto;
 mod types;

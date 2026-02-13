@@ -1,53 +1,35 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use argon2::Argon2;
-use chacha20poly1305::{aead::Aead, KeyInit, XChaCha20Poly1305, XNonce};
+use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce, aead::Aead};
 use cli_clipboard::{ClipboardContext, ClipboardProvider};
 use std::fs;
-use std::io::{stdin, stdout, Write};
+use std::io::{Write, stdin, stdout};
 use std::path::PathBuf;
 use std::process;
-use std::sync::{Arc, Mutex};
+use std::sync::mpsc::channel;
 use std::{thread, time};
-use termion::{
-    clear,
-    cursor::{self, DetectCursorPos},
-    event::Key,
-    input::TermRead,
-    raw::IntoRawMode,
-    terminal_size,
-};
+use termion::{clear, cursor, event::Key, input::TermRead, raw::IntoRawMode};
 use toml;
 use totp_rs::{Algorithm, TOTP};
 
-use crate::{
-    enums::{TokenAlgorithm, TokenType},
-    types::KeyFile,
-};
-
-const PRINTED_LINES: u16 = 3; // Amount of lines printed with token info
+use crate::types::{BufferedStdout, KeyFile, TokenAlgorithm, TokenType};
 
 pub fn use_token(key_file: &PathBuf, token_label: &str) -> Result<()> {
-    let mut stdout_handle = stdout().into_raw_mode()?;
+    let mut maybe_clipboard = ClipboardContext::new().ok();
+    let stdout_handle = stdout().into_raw_mode()?;
+
+    let clean_exit = || -> ! {
+        std::mem::drop(stdout_handle);
+        process::exit(0);
+    };
+
     let mut stdout = stdout();
     let mut stdin = stdin();
-    let mut maybe_clipboard = ClipboardContext::new().ok();
-    let curent_token = Arc::new(Mutex::new("".to_string()));
 
-    // write!(stdout, "{}", cursor::Save)?;
-    stdout.flush()?;
-    let mut cursor_position = stdout
-        .cursor_pos()
-        .expect("Failed to get cursor position from stdout");
-    let term_size = terminal_size().expect("Failed to get terminal size");
-
-    if (term_size.1 - cursor_position.1) < PRINTED_LINES {
-        cursor_position.1 -= PRINTED_LINES - (term_size.1 - cursor_position.1);
-    }
-
-    write!(stdout, "Enter key file password: ")?;
+    write!(stdout, "Enter database password: ")?;
     stdout.flush()?;
     let key_file_password = stdin.read_passwd(&mut stdout)?.unwrap_or_default();
-    write!(stdout, "\r\n\r\n\r\n")?; // Padding for correct cursor movement - equals to PRINTED_LINES
+    write!(stdout, "\r\n{}{}", cursor::Up(1), clear::AfterCursor)?;
     stdout.flush()?;
 
     let key_file_data = fs::read_to_string(key_file)?;
@@ -96,78 +78,74 @@ pub fn use_token(key_file: &PathBuf, token_label: &str) -> Result<()> {
         token.label.clone(),
     );
 
-    let curent_token_ref = curent_token.clone();
+    let mut buffered_stdout = BufferedStdout::new(stdout);
+
+    let (sender, receiver) = channel::<AppEvent>();
+    let sender_key = sender.clone();
+
     thread::spawn(move || {
         let stdin = stdin.lock();
 
-        let clean_exit = move || {
-            write!(
-                stdout_handle,
-                "{}{}",
-                cursor::Goto(cursor_position.0, cursor_position.1),
-                clear::AfterCursor
-            )
-            .unwrap();
-            stdout_handle.flush().unwrap();
-            std::mem::drop(stdout_handle);
-            process::exit(0);
-        };
-
         for k in stdin.keys() {
-            match k.as_ref().unwrap() {
-                Key::Char('q') | Key::Esc | Key::Ctrl('c') => {
-                    clean_exit();
-                    break;
-                }
-                Key::Char('c') => {
-                    if let Some(clipboard) = maybe_clipboard.as_mut() {
-                        clipboard
-                            .set_contents(curent_token_ref.lock().unwrap().clone())
-                            .expect("Failed to copy code to clipboard! Maybe there is no clipboard support.");
+            match k {
+                Ok(key) => match key {
+                    Key::Char('q') | Key::Esc | Key::Ctrl('c') => {
+                        sender_key.send(AppEvent::Terminate).unwrap()
                     }
-                }
-                _ => {}
-            }
+                    Key::Char('c') => sender_key.send(AppEvent::CopyToClipboard).unwrap(),
+                    _ => {}
+                },
+                Err(_) => sender_key.send(AppEvent::Terminate).unwrap(),
+            };
         }
+    });
 
-        // if stdin
-        //     .keys()
-        //     .find(|k| match k.as_ref().unwrap() {
-        //         Key::Char('q') => true,
-        //         Key::Esc => true,
-        //         Key::Ctrl('c') => true,
-        //         _ => false,
-        //     })
-        //     .is_some()
-        // {
-        //     clean_exit();
-        // }
+    thread::spawn(move || {
+        loop {
+            sender.send(AppEvent::Timer).unwrap();
+            thread::sleep(time::Duration::from_millis(1000));
+        }
     });
 
     loop {
-        let code = totp.generate_current()?;
-        let ttl = totp.ttl()?;
+        let event = match receiver.recv() {
+            Ok(evt) => evt,
+            Err(_) => {
+                buffered_stdout.clear().ok();
+                clean_exit()
+            }
+        };
 
-        *curent_token.lock().unwrap() = code.clone();
+        match event {
+            AppEvent::Terminate => {
+                buffered_stdout.clear().ok();
+                clean_exit()
+            }
+            AppEvent::CopyToClipboard => {
+                if let Some(clipboard) = maybe_clipboard.as_mut() {
+                    let code = totp.generate_current()?;
+                    clipboard.set_contents(code).ok();
+                }
+            }
+            AppEvent::Timer => {
+                let code = totp.generate_current()?;
+                let ttl = totp.ttl()?;
 
-        write!(
-            stdout,
-            "{}{}",
-            cursor::Goto(cursor_position.0, cursor_position.1),
-            clear::AfterCursor
-        )
-        .unwrap();
-        stdout.flush()?;
-        write!(
-            stdout,
-            "token: {}\r\ncode: {} ttl: {}\r\n",
-            token_label, code, ttl
-        )?;
-        write!(
-            stdout,
-            "press 'c' to copy code to clipboard, 'q', 'Ctrl+c' or 'Esc' to exit\r\n",
-        )?;
-        stdout.flush()?;
-        thread::sleep(time::Duration::from_millis(1000));
+                buffered_stdout.add(&format!(
+                    "token: {}\r\ncode: {} ttl: {}\r\n\r\n",
+                    token_label, code, ttl
+                ));
+                buffered_stdout.add("press 'c' to copy code to clipboard,\r\n");
+                buffered_stdout.add("press 'q', 'Ctrl+c' or 'Esc' to exit\r\n");
+                buffered_stdout.clear()?;
+                buffered_stdout.flush()?;
+            }
+        };
     }
+}
+
+enum AppEvent {
+    Terminate,
+    CopyToClipboard,
+    Timer,
 }

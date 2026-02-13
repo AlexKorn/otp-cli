@@ -1,19 +1,18 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::{fs, path::PathBuf};
 use totp_rs::{Algorithm, TOTP};
 
-use crate::{
-    enums::{TokenAlgorithm, TokenType},
-    types::Token,
-};
+use crate::types::{Token, TokenAlgorithm, TokenType};
 
-pub fn parse_new_token(backup_file: &PathBuf) -> Result<Vec<Token>> {
+/// Parse file with token urls (`otpauth://...`), one url on each line
+pub fn parse_tokens_list(backup_file: &PathBuf) -> Result<Vec<Token>> {
     fs::read_to_string(backup_file)?
         .trim()
         .lines()
         .map(|row| {
-            let token = TOTP::from_url_unchecked(row.trim())
-                .map_err(|err| anyhow!("Failed to parse token from url: {}", err))?;
+            let token =
+                TOTP::from_url_unchecked(row.trim().replace("algorithm=sha", "algorithm=SHA"))
+                    .map_err(|err| anyhow!("Failed to parse token from url: {}", err))?;
 
             let algorithm = match token.algorithm {
                 Algorithm::SHA1 => TokenAlgorithm::Sha1,

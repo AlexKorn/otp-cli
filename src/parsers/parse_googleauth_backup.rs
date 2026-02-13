@@ -1,13 +1,12 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use base64::{self, Engine};
 use protobuf::Message;
 use std::{fs, path::PathBuf};
 use urlencoding;
 
 use crate::{
-    enums::{TokenAlgorithm, TokenType},
     proto::google_auth,
-    types::Token,
+    types::{Token, TokenAlgorithm, TokenType},
 };
 
 pub fn parse_googleauth_backup(backup_file: &PathBuf) -> Result<Vec<Token>> {

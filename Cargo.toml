@@ -4,29 +4,30 @@ description = "OTP authenticator with command-line interface"
 authors = ["Alex Korn <madworkscreation@gmail.com>"]
 license = "MIT"
 version = "1.0.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.91"
 
 [dependencies]
-aes-gcm = { version = "0.10.2", features = ["aes"] }
-anyhow = "1.0.71"
-argon2 = { version = "0.5.0", default-features = false, features = ["alloc"] }
-base64 = "0.21.2"
+aes-gcm = { version = "0.10.3", features = ["aes"] }
+anyhow = "1.0"
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc"] }
+base64 = "0.22"
 chacha20poly1305 = { version = "0.10.1", features = ["rand_core"] }
-clap = { version = "4.3.8", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
 cli-clipboard = "0.4.0"
 hex = "0.4.3"
-jaded = "0.4.0"
-pbkdf2 = "0.12.1"
-protobuf = "3.2.0"
-rand_core = { version = "0.6.4", features = ["getrandom"] }
-serde = { version = "1.0.152", features = ["derive"] }
-serde_json = "1.0.93"
-sha2 = "0.10.7"
-termion = "2.0.1"
-toml = "0.7.6"
-totp-rs = { version = "5.0.2", features = ["otpauth"] }
-urlencoding = "2.1.2"
+jaded = "0.5.0"
+pbkdf2 = "0.12.2"
+protobuf = "3.7.2"
+rand = { version = "0.10.0" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10.2"
+termion = "4.0.6"
+toml = "0.9.8"
+totp-rs = { version = "5.7", features = ["otpauth"] }
+urlencoding = "2.1"
 
 [build-dependencies]
-protoc-bin-vendored = "3.0.0"
-protobuf-codegen = "3.2.0"
+protoc-bin-vendored = "3.2"
+protobuf-codegen = "3.7.2"

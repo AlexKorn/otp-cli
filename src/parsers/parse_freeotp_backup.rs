@@ -1,5 +1,5 @@
-use aes_gcm::{aead::KeyInit, AeadInPlace, Aes256Gcm, Nonce};
-use anyhow::{anyhow, Result};
+use aes_gcm::{AeadInPlace, Aes256Gcm, Nonce, aead::KeyInit};
+use anyhow::{Result, anyhow};
 use jaded::Parser;
 use pbkdf2::pbkdf2_hmac_array;
 use serde::Deserialize;
@@ -7,10 +7,7 @@ use sha2::Sha512;
 use std::collections::HashMap;
 use std::{fs, path::PathBuf};
 
-use crate::{
-    enums::{TokenAlgorithm, TokenType},
-    types::Token,
-};
+use crate::types::{Token, TokenAlgorithm, TokenType};
 
 pub fn parse_freeotp_backup(backup_file: &PathBuf, password: &str) -> Result<Vec<Token>> {
     let mut entries = extract_file_contents(backup_file)?;
